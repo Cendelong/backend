@@ -166,63 +166,90 @@ export class FunnelStrategyService {
   _scheduleSubPhase(task) {
     const delay = (task.config.mainToSubDelay.min + Math.random() * (task.config.mainToSubDelay.max - task.config.mainToSubDelay.min)) * 60000;
     setTimeout(async () => {
-      const mainRpids = task.results.main.filter(r => r.rpid).map(r => r.rpid);
-      for (const accountId of task.subAccounts) {
-        try {
-          const rootRpid = mainRpids[Math.floor(Math.random() * mainRpids.length)];
-          const content = this.contentGenerator.generateReply({ accountId, mainComment: task.mainComment || '' });
-          const result = await this.commentService.addReply({
-            accountId, oid: task.oid, message: content, root: rootRpid, parent: rootRpid,
-          });
-          task.results.sub.push({ accountId, rpid: result.rpid, success: !!result.rpid });
-          task.progress.sub++;
-        } catch (e) {
-          task.results.sub.push({ accountId, success: false, error: e.message });
+      try {
+        const mainRpids = task.results.main.filter(r => r.rpid).map(r => r.rpid);
+        if (mainRpids.length === 0) {
+          console.warn('[FunnelStrategy] 无主评论rpid，跳过子回复阶段');
+          task.progress.sub = task.subAccounts.length;
+          this._checkComplete(task);
+          return;
         }
-        await this._sleep(5000 + Math.random() * 10000);
+        for (const accountId of task.subAccounts) {
+          try {
+            const rootRpid = mainRpids[Math.floor(Math.random() * mainRpids.length)];
+            const content = this.contentGenerator.generateReply({ accountId, mainComment: task.mainComment || '' });
+            const result = await this.commentService.addReply({
+              accountId, oid: task.oid, message: content, rpid: rootRpid,
+            });
+            task.results.sub.push({ accountId, rpid: result.rpid, success: !!result.rpid });
+            task.progress.sub++;
+          } catch (e) {
+            task.results.sub.push({ accountId, success: false, error: e.message });
+            task.progress.sub++;
+          }
+          await this._sleep(5000 + Math.random() * 10000);
+        }
+        this._checkComplete(task);
+      } catch (e) {
+        console.error('[FunnelStrategy] 子回复阶段异常:', e.message);
+        task.progress.sub = task.subAccounts.length;
+        this._checkComplete(task);
       }
-      this._checkComplete(task);
     }, delay);
   }
 
   _scheduleLikePhase(task) {
     const delay = ((task.config.mainToSubDelay.max + task.config.subToLikeDelay.min) * 60000);
     setTimeout(async () => {
-      const mainRpids = task.results.main.filter(r => r.rpid).map(r => r.rpid);
-      for (const accountId of task.likeAccounts) {
-        try {
-          const rpid = mainRpids[Math.floor(Math.random() * mainRpids.length)];
-          if (rpid) {
-            await this.commentService.likeComment({ accountId, oid: task.oid, rpid, action: 1 });
+      try {
+        const mainRpids = task.results.main.filter(r => r.rpid).map(r => r.rpid);
+        for (const accountId of task.likeAccounts) {
+          try {
+            const rpid = mainRpids.length > 0 ? mainRpids[Math.floor(Math.random() * mainRpids.length)] : null;
+            if (rpid) {
+              await this.commentService.likeComment({ accountId, oid: task.oid, rpid, type: 1 });
+            }
+            task.results.like.push({ accountId, success: !!rpid });
+            task.progress.like++;
+          } catch (e) {
+            task.results.like.push({ accountId, success: false, error: e.message });
+            task.progress.like++;
           }
-          task.results.like.push({ accountId, success: true });
-          task.progress.like++;
-        } catch (e) {
-          task.results.like.push({ accountId, success: false, error: e.message });
+          await this._sleep(2000 + Math.random() * 3000);
         }
-        await this._sleep(2000 + Math.random() * 3000);
+        this._checkComplete(task);
+      } catch (e) {
+        console.error('[FunnelStrategy] 点赞阶段异常:', e.message);
+        task.progress.like = task.likeAccounts.length;
+        this._checkComplete(task);
       }
-      this._checkComplete(task);
     }, delay);
   }
 
   _scheduleRandomPhase(task) {
     const delay = (task.config.mainToSubDelay.max + task.config.subToLikeDelay.max + 2) * 60000;
     setTimeout(async () => {
-      for (const accountId of task.randomAccounts) {
-        try {
-          const content = this.contentGenerator.generate({ accountId, tone: 'random' });
-          const result = await this.commentService.addComment({
-            accountId, oid: task.oid, message: content, type: 1,
-          });
-          task.results.random.push({ accountId, rpid: result.rpid, success: !!result.rpid });
-          task.progress.random++;
-        } catch (e) {
-          task.results.random.push({ accountId, success: false, error: e.message });
+      try {
+        for (const accountId of task.randomAccounts) {
+          try {
+            const content = this.contentGenerator.generate({ accountId, tone: 'random' });
+            const result = await this.commentService.addComment({
+              accountId, oid: task.oid, message: content, type: 1,
+            });
+            task.results.random.push({ accountId, rpid: result.rpid, success: !!result.rpid });
+            task.progress.random++;
+          } catch (e) {
+            task.results.random.push({ accountId, success: false, error: e.message });
+            task.progress.random++;
+          }
+          await this._sleep(8000 + Math.random() * 15000);
         }
-        await this._sleep(8000 + Math.random() * 15000);
+        this._checkComplete(task);
+      } catch (e) {
+        console.error('[FunnelStrategy] 随机评论阶段异常:', e.message);
+        task.progress.random = task.randomAccounts.length;
+        this._checkComplete(task);
       }
-      this._checkComplete(task);
     }, delay);
   }
 
