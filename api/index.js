@@ -208,7 +208,14 @@ export function createApiRouter(app) {
     const p = proxyService.get(region);
     ok(res, p ? { proxy: p } : { proxy: null, message: region ? `${region}地区暂无可用IP` : '暂无可用IP' });
   });
-  router.post('/proxy/refresh', (req, res) => handle(res, () => proxyService.refresh()));
+  // 立即返回，后台异步刷新（避免前端15秒超时）
+  router.post('/proxy/refresh', (req, res) => {
+    const wasRefreshing = proxyService.isRefreshing ? proxyService.isRefreshing() : false;
+    if (!wasRefreshing) {
+      proxyService.refresh().catch(e => console.error('[ProxyPool] 手动刷新失败:', e.message));
+    }
+    ok(res, { triggered: true, alreadyRefreshing: wasRefreshing, message: wasRefreshing ? '已有刷新任务在进行' : '已触发后台刷新，约30-60秒完成' });
+  });
   router.get('/proxy/global', (req, res) => ok(res, { globalProxy: proxyService.get() }));
   router.post('/proxy/global', (req, res) => ok(res, { success: true }));
   router.get('/proxy/occupancy', (req, res) => ok(res, proxyService.getOccupancy()));
