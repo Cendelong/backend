@@ -47,10 +47,13 @@ export class CookieRefresher extends EventEmitter {
 
   /**
    * 执行完整的6步刷新流程
+   * @param {Object} [opts] - 选项
+   * @param {boolean} [opts.force=false] - 强制刷新（跳过步骤1检查）
    * @returns {Object} { success, newCookies, newRefreshToken, steps }
    */
-  async refresh() {
-    this.emit('refreshStart', { accountId: this.account.id, uid: this.account.uid });
+  async refresh(opts = {}) {
+    const { force = false } = opts;
+    this.emit('refreshStart', { accountId: this.account.id, uid: this.account.uid, force });
 
     try {
       // 前置检查
@@ -67,9 +70,12 @@ export class CookieRefresher extends EventEmitter {
       this.stepResults.step1 = info;
 
       // 如果不需要刷新，直接返回成功（但不更新Cookie）
-      if (!info.refresh) {
+      if (!info.refresh && !force) {
         this.emit('refreshSkip', { reason: 'Cookie不需要刷新', accountId: this.account.id });
         return { success: true, skipped: true, reason: '不需要刷新', steps: this.stepResults };
+      }
+      if (force) {
+        console.log(`[CookieRefresher] ⚡ 强制模式：忽略服务器 refresh=false，继续执行刷新流程`);
       }
 
       // 步骤2：生成 CorrespondPath

@@ -30,7 +30,7 @@ export function createApiRouter(app) {
     const a = accountService.get(req.params.id);
     a ? ok(res, a) : fail(res, '账号不存在');
   });
-  router.post('/v2/accounts/:id/refresh', (req, res) => handle(res, () => accountService.refresh(req.params.id)));
+  router.post('/v2/accounts/:id/refresh', (req, res) => handle(res, () => accountService.refresh(req.params.id, req.body || {})));
   router.post('/v2/accounts/refresh-all', (req, res) => handle(res, () => accountService.refreshAll()));
   router.post('/v2/accounts/health-check', (req, res) => ok(res, accountService.healthCheck()));
   router.post('/v2/accounts/:id/verify', (req, res) => handle(res, () => accountService.verify(req.params.id)));

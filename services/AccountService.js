@@ -94,10 +94,10 @@ export class AccountService {
   update(id, patch) { return this.manager.update(id, patch); }
 
   // ===== 账号健康 =====
-  async refresh(id) {
+  async refresh(id, opts = {}) {
     const acc = this.get(id);
     if (!acc) throw new Error('账号不存在');
-    return this.manager.refreshAccount ? await this.manager.refreshAccount(id) : { id, refreshed: true };
+    return this.manager.refreshAccount ? await this.manager.refreshAccount(id, { force: !!opts.force }) : { id, refreshed: true };
   }
 
   async refreshAll() {

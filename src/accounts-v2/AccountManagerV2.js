@@ -337,7 +337,7 @@ export class AccountManagerV2 extends EventEmitter {
     account.transitionTo(ACCOUNT_STATUS.REFRESHING, '开始刷新Cookie');
 
     const refresher = new CookieRefresher(account, options);
-    const result = await refresher.refresh();
+    const result = await refresher.refresh({ force: !!options.force });
 
     if (result.success && !result.skipped) {
       // v3.1：刷新完成后重置错峰刷新时刻 + 进入 1 小时短冷静期
