@@ -15,6 +15,8 @@
  * | ADMIN_TOKEN        | ★ 调试转发接口鉴权令牌（防公开滥用）          |
  * | GLOBAL_RATE_PER_MIN| 策略全局发布速率（次/分钟，默认 10）          |
  * | MONITOR_INTERVAL   | 监控轮询扫描间隔（秒，默认 5）                |
+ * | BACKEND_ROLE       | 后端角色: proxy(仅代理池) / api(仅API操作) / both(全部，默认) |
+ * | BANDWIDTH_THRESHOLD| 出站流量阈值，如 4.5GB / 4500MB / 纯数字字节（默认4.5GB）|
  * ---------------------------------------------------------------
  */
 export const config = {

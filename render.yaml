@@ -1,14 +1,25 @@
-# Render 部署配置（bilibili-comment-target-backend）
-# 部署流程：
+# Render 部署配置（v6.5 多后端流量调度版）
+#
+# 【多后端部署方案】
+# Render 免费版每月仅 5GB 出站流量，使用 10 个实例分摊：
+#   - 代理池组（4个）：编号 1-4，BACKEND_ROLE=proxy
+#   - API操作组（6个）：编号 5-10，BACKEND_ROLE=api
+#
+# 部署步骤：
 #   1. 将 backend/ 目录推送到 GitHub 仓库
-#   2. Render → New → Web Service → 连接该仓库
-#   3. Build Command: npm install
-#   4. Start Command: npm start
-#   5. 在 Environment 中设置 FRONTEND_URL（见下方说明）
-#   6. 部署完成后访问 https://<服务名>.onrender.com/health 验证
+#   2. Render → New → Web Service → 连接该仓库（重复10次，创建10个服务）
+#   3. 每个服务设置不同的 name 和 BACKEND_ROLE 环境变量
+#   4. Build Command: npm install
+#   5. Start Command: npm start
+#   6. 所有服务设置相同的 FRONTEND_URL（前端地址）
+#   7. 部署完成后，在前端 config.js 或系统设置中填入10个后端地址
+#
+# 注意：render.yaml 只能定义一个服务，多后端需要手动在 Render 面板
+# 逐个创建，或使用 Blueprint 多次部署。每个服务的 name 必须唯一。
+
 services:
   - type: web
-    name: bilibili-comment-target
+    name: bili-proxy-1        # 代理池组 #1，改为 bili-proxy-2/3/4 创建其余实例
     runtime: node
     plan: free
     region: singapore          # 新加坡，离中国近
@@ -19,14 +30,20 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      # ★ 前端域名白名单（CORS）
-      # 部署后改为你的 GitHub Pages 地址，如 https://你的用户名.github.io
-      # 多个源用逗号分隔；不设置则允许所有源（开发模式，不推荐生产）
+      # ★ 前端域名白名单（CORS）—— 所有10个后端都设相同值
       - key: FRONTEND_URL
         sync: false
       # 兼容旧命名（二选一即可，FRONTEND_URL 优先）
       - key: CORS_ORIGIN
         sync: false
+      # ★ v6.5 后端角色：proxy=仅代理池 / api=仅API操作 / both=全部（默认）
+      # 代理池组(1-4号)设为 proxy，API操作组(5-10号)设为 api
+      - key: BACKEND_ROLE
+        value: proxy
+      # ★ v6.5 出站流量阈值（默认4.5GB，留0.5GB安全余量）
+      # 达到此值后 /api/backend/bandwidth 返回 exhausted=true，前端自动切换
+      - key: BANDWIDTH_THRESHOLD
+        value: 4.5GB
       # 通用接口限流（次/分钟，默认120）
       - key: RATE_LIMIT
         value: 120

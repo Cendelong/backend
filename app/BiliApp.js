@@ -30,19 +30,8 @@ import { RiskService } from '../services/RiskService.js';
 import { TaskService } from '../services/TaskService.js';
 import { FingerprintService } from '../services/FingerprintService.js';
 import { TrendTrackerService } from '../services/TrendTrackerService.js';
-import { PersonaService } from '../services/PersonaService.js';
-import { ContentGenerator } from '../services/ContentGenerator.js';
-import { MemoryService } from '../services/MemoryService.js';
-import { GrowthSystem } from '../services/GrowthSystem.js';
-import { GlobalPolicyService } from '../services/GlobalPolicyService.js';
-import { RiskController } from '../services/RiskController.js';
-import { BehaviorEngine } from '../services/BehaviorEngine.js';
-import { FunnelStrategyService } from '../services/FunnelStrategyService.js';
-import { VideoPublishService } from '../services/VideoPublishService.js';
-import { ReportService } from '../services/ReportService.js';
-import { RankAnalyticsService } from '../services/RankAnalyticsService.js';
-import { AdaptiveScheduler } from '../services/AdaptiveScheduler.js';
-import { BiliClient, ReportAPI, RankAPI, PublishAPI } from '../src/bili-api/index.js';
+import { BandwidthService } from '../services/BandwidthService.js';
+import bandwidthTracker from '../src/utils/bandwidth-tracker.js';
 import { createApiRouter } from '../api/index.js';
 import requireAdmin, { requireAdminForWrites } from '../src/auth.js';
 
@@ -62,6 +51,7 @@ export class BiliApp {
     this.fingerprintService = new FingerprintService();
     this.strategyService = new StrategyService();
     this.nurtureService = new NurtureService();
+    this.bandwidthService = new BandwidthService();
 
     // 依赖注入的Service
     this.commentService = new CommentService({ accountService: this.accountService });
@@ -72,51 +62,6 @@ export class BiliApp {
       commentService: this.commentService,
       monitorService: this.monitorService,
       accountService: this.accountService,
-    });
-
-    // ===== v7.1 新增服务 =====
-    this.personaService = new PersonaService();
-    this.memoryService = new MemoryService();
-    this.globalPolicyService = new GlobalPolicyService();
-    this.contentGenerator = new ContentGenerator(this.personaService);
-    this.growthSystem = new GrowthSystem({ accountService: this.accountService, memoryService: this.memoryService });
-    this.riskController = new RiskController({ accountService: this.accountService, globalPolicyService: this.globalPolicyService });
-    this.behaviorEngine = new BehaviorEngine({
-      accountService: this.accountService, videoService: this.videoService,
-      commentService: this.commentService, contentGenerator: this.contentGenerator,
-      memoryService: this.memoryService, personaService: this.personaService,
-      growthSystem: this.growthSystem,
-    });
-    this.funnelStrategyService = new FunnelStrategyService({
-      accountService: this.accountService, commentService: this.commentService,
-      monitorService: this.monitorService, contentGenerator: this.contentGenerator,
-      memoryService: this.memoryService,
-    });
-    this._reportApiFactory = (account) => {
-      const client = new BiliClient({ cookieStr: account.cookieStr, csrf: account.csrf, proxy: account.proxy, userAgent: account.userAgent });
-      return new ReportAPI(client);
-    };
-    this._rankApiFactory = () => new RankAPI(new BiliClient({}));
-    this._publishApiFactory = (account) => {
-      const client = new BiliClient({ cookieStr: account.cookieStr, csrf: account.csrf, proxy: account.proxy, userAgent: account.userAgent });
-      return new PublishAPI(client);
-    };
-    this.videoPublishService = new VideoPublishService({
-      accountService: this.accountService, publishApiFactory: this._publishApiFactory,
-      funnelStrategyService: this.funnelStrategyService,
-    });
-    this.reportService = new ReportService({
-      accountService: this.accountService, reportApiFactory: this._reportApiFactory,
-      videoService: this.videoService,
-    });
-    this.rankAnalyticsService = new RankAnalyticsService({
-      rankApiFactory: this._rankApiFactory, videoService: this.videoService,
-    });
-    this.adaptiveScheduler = new AdaptiveScheduler({
-      accountService: this.accountService, behaviorEngine: this.behaviorEngine,
-      commentService: this.commentService, funnelStrategyService: this.funnelStrategyService,
-      riskController: this.riskController, globalPolicyService: this.globalPolicyService,
-      growthSystem: this.growthSystem, memoryService: this.memoryService,
     });
 
     this._express = null;
@@ -130,6 +75,29 @@ export class BiliApp {
     // 中间件
     app.use(express.json({ limit: '1mb' }));
     app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+
+    // v6.5 带宽追踪：统计所有 HTTP 响应体出站字节
+    app.use((req, res, next) => {
+      const originalSend = res.send.bind(res);
+      const originalJson = res.json.bind(res);
+      let responseBytes = 0;
+      res.send = (body) => {
+        if (body) {
+          if (Buffer.isBuffer(body)) responseBytes += body.length;
+          else if (typeof body === 'string') responseBytes += Buffer.byteLength(body, 'utf-8');
+          else responseBytes += Buffer.byteLength(JSON.stringify(body), 'utf-8');
+        }
+        return originalSend(body);
+      };
+      res.json = (body) => {
+        if (body) responseBytes += Buffer.byteLength(JSON.stringify(body), 'utf-8');
+        return originalJson(body);
+      };
+      res.on('finish', () => {
+        if (responseBytes > 0) bandwidthTracker.recordResponse(responseBytes);
+      });
+      next();
+    });
 
     // CORS
     const corsOptions = {
@@ -164,6 +132,19 @@ export class BiliApp {
     });
     app.get('/api/health', (req, res) => {
       res.json({ code: 0, data: { status: 'ok', version: '4.0.0', uptime: process.uptime() } });
+    });
+
+    // v6.5 多后端流量调度：后端带宽状态端点（无需鉴权，前端轮询用）
+    app.get('/api/backend/bandwidth', (req, res) => {
+      res.json({ code: 0, data: this.bandwidthService.getStatus() });
+    });
+    // v6.5 后端角色信息
+    app.get('/api/backend/role', (req, res) => {
+      res.json({ code: 0, data: { role: this.bandwidthService.getRole(), exhausted: this.bandwidthService.isExhausted() } });
+    });
+    // v6.5 重置流量统计（调试用，需管理员）
+    app.post('/api/backend/bandwidth/reset', requireAdmin, (req, res) => {
+      res.json({ code: 0, data: this.bandwidthService.reset() });
     });
 
     // 404
@@ -262,6 +243,7 @@ server.on('connect', (req, clientSocket, head) => {
 
         console.log(`[WsTunnel] 客户端连接, region=${region}`);
         socket.setNoDelay(true);
+        bandwidthTracker.recordWsConnection();
 
         // 状态机：等待第一条文本帧（目标地址），然后建立上游连接
         let buf = Buffer.alloc(0);
@@ -314,7 +296,7 @@ server.on('connect', (req, clientSocket, head) => {
               console.log('[WsTunnel] 直连上游已连接: ' + targetHost + ':' + targetPort);
             });
             upstream.on('data', (chunk) => {
-              if (targetConnected) { upstreamBytes += chunk.length; sendFrame(chunk, true); }
+              if (targetConnected) { upstreamBytes += chunk.length; bandwidthTracker.recordWs(chunk.length); sendFrame(chunk, true); }
             });
             upstream.on('error', (e) => {
               console.warn('[WsTunnel] 直连上游错误 ' + targetHost + ':' + targetPort + ':', e.message);
@@ -357,7 +339,7 @@ server.on('connect', (req, clientSocket, head) => {
                     targetConnected = true;
                     sendFrame(JSON.stringify({ connected: true }), false);
                     const rest = upBuf.slice(idx + 4);
-                    if (rest.length > 0) { upstreamBytes += rest.length; sendFrame(rest, true); }
+                    if (rest.length > 0) { upstreamBytes += rest.length; bandwidthTracker.recordWs(rest.length); sendFrame(rest, true); }
                   } else {
                     sendFrame(JSON.stringify({ error: '上游代理CONNECT失败: ' + statusLine }), false);
                     upstream.destroy();
@@ -365,6 +347,7 @@ server.on('connect', (req, clientSocket, head) => {
                 }
               } else {
                 upstreamBytes += chunk.length;
+                bandwidthTracker.recordWs(chunk.length);
                 sendFrame(chunk, true);
               }
             });
@@ -402,11 +385,11 @@ server.on('connect', (req, clientSocket, head) => {
       setupWsTunnel(this._server, _self);
       console.log('');
       console.log('╔══════════════════════════════════════════════════════════╗');
-      console.log('║  B站内容互动管理平台后端 v5.1.0（全球多地区+链式2）       ║');
+      console.log('║  B站内容互动管理平台后端 v6.5（多后端流量调度版）        ║');
       console.log('╠══════════════════════════════════════════════════════════╣');
       console.log(`║  端口: ${port}                                                ║`);
-      console.log('║  架构: OOP分层 (API→Service→bili-api/utils)             ║');
-      console.log('║  新增: 热度追踪模块 (TAG发现/视频抓取/自动评论/监控轮询)  ║');
+      console.log(`║  角色: ${(process.env.BACKEND_ROLE || 'both').padEnd(6)}  |  流量阈值: ${(bandwidthTracker.getStatus().thresholdGB)}GB                        ║`);
+      console.log('║  架构: OOP分层 + 带宽追踪 + 多后端顺序调度               ║');
       console.log('╚══════════════════════════════════════════════════════════╝');
       console.log('');
     });

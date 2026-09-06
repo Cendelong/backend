@@ -208,14 +208,7 @@ export function createApiRouter(app) {
     const p = proxyService.get(region);
     ok(res, p ? { proxy: p } : { proxy: null, message: region ? `${region}地区暂无可用IP` : '暂无可用IP' });
   });
-  // 立即返回，后台异步刷新（避免前端15秒超时）
-  router.post('/proxy/refresh', (req, res) => {
-    const wasRefreshing = proxyService.isRefreshing ? proxyService.isRefreshing() : false;
-    if (!wasRefreshing) {
-      proxyService.refresh().catch(e => console.error('[ProxyPool] 手动刷新失败:', e.message));
-    }
-    ok(res, { triggered: true, alreadyRefreshing: wasRefreshing, message: wasRefreshing ? '已有刷新任务在进行' : '已触发后台刷新，约30-60秒完成' });
-  });
+  router.post('/proxy/refresh', (req, res) => handle(res, () => proxyService.refresh()));
   router.get('/proxy/global', (req, res) => ok(res, { globalProxy: proxyService.get() }));
   router.post('/proxy/global', (req, res) => ok(res, { success: true }));
   router.get('/proxy/occupancy', (req, res) => ok(res, proxyService.getOccupancy()));
@@ -246,101 +239,8 @@ export function createApiRouter(app) {
   // ==================== 审计 ====================
   router.get('/audit/logs', (req, res) => ok(res, riskService.getLogs(req.query)));
 
-  // ==================== Personas v7.1 ====================
-  router.get('/personas', (req, res) => ok(res, app.personaService.listTemplates()));
-  router.get('/personas/:templateId', (req, res) => {
-    const t = app.personaService.getTemplate(req.params.templateId);
-    t ? ok(res, t) : fail(res, '模板不存在');
-  });
-  router.post('/personas', (req, res) => ok(res, app.personaService.saveTemplate(req.body)));
-  router.delete('/personas/:templateId', (req, res) => ok(res, { success: app.personaService.deleteTemplate(req.params.templateId) }));
-  router.post('/personas/generate', (req, res) => ok(res, app.personaService.generateVariants(req.body.templateId, req.body.count || 1)));
-  router.post('/personas/assign', (req, res) => ok(res, app.personaService.assignPersona(req.body.accountId, req.body.templateId)));
-  router.post('/personas/batch-assign', (req, res) => ok(res, app.personaService.batchAssign(req.body.accountIds || [], req.body.templateId)));
-  router.get('/personas/assigned/list', (req, res) => ok(res, app.personaService.listAssigned()));
-  router.get('/personas/assigned/:accountId', (req, res) => ok(res, app.personaService.getPersona(req.params.accountId)));
-
-  // ==================== 内容生成 v7.1 ====================
-  router.post('/content/generate', (req, res) => ok(res, app.contentGenerator.generate(req.body)));
-  router.post('/content/generate-batch', (req, res) => ok(res, app.contentGenerator.generateBatch(req.body)));
-  router.post('/content/generate-reply', (req, res) => ok(res, app.contentGenerator.generateReply(req.body)));
-
-  // ==================== 矩阵引流 v7.1 ====================
-  router.get('/funnel/config', (req, res) => ok(res, app.funnelStrategyService.getConfig()));
-  router.post('/funnel/config', (req, res) => ok(res, app.funnelStrategyService.updateConfig(req.body)));
-  router.post('/funnel/create', (req, res) => handle(res, () => app.funnelStrategyService.createTask(req.body)));
-  router.post('/funnel/execute/:funnelId', (req, res) => handle(res, () => app.funnelStrategyService.execute(req.params.funnelId)));
-  router.get('/funnel/tasks', (req, res) => ok(res, app.funnelStrategyService.listTasks()));
-  router.get('/funnel/tasks/:funnelId', (req, res) => {
-    const t = app.funnelStrategyService.getTask(req.params.funnelId);
-    t ? ok(res, t) : fail(res, '任务不存在');
-  });
-
-  // ==================== 视频发布 v7.1 ====================
-  router.get('/video-publish/publishers', (req, res) => ok(res, app.videoPublishService.listPublishers()));
-  router.post('/video-publish/set-publisher', (req, res) => ok(res, app.videoPublishService.setPublisher(req.body.id, req.body.isPublisher)));
-  router.post('/video-publish/tasks', (req, res) => ok(res, app.videoPublishService.createTask(req.body)));
-  router.post('/video-publish/execute/:taskId', (req, res) => handle(res, () => app.videoPublishService.execute(req.params.taskId)));
-  router.get('/video-publish/tasks', (req, res) => ok(res, app.videoPublishService.listTasks()));
-  router.get('/video-publish/tasks/:taskId', (req, res) => {
-    const t = app.videoPublishService.getTask(req.params.taskId);
-    t ? ok(res, t) : fail(res, '任务不存在');
-  });
-  router.post('/video-publish/check/:taskId', (req, res) => handle(res, () => app.videoPublishService.checkStatus(req.params.taskId)));
-  router.delete('/video-publish/tasks/:taskId', (req, res) => ok(res, { success: app.videoPublishService.deleteTask(req.params.taskId) }));
-
-  // ==================== 举报中心 v7.1 ====================
-  router.get('/report/reasons', (req, res) => ok(res, app.reportService.getReasons()));
-  router.post('/report/tasks', (req, res) => ok(res, app.reportService.createTask(req.body)));
-  router.post('/report/tasks/by-keyword', (req, res) => handle(res, () => app.reportService.createTaskByKeyword(req.body)));
-  router.post('/report/execute/:taskId', (req, res) => handle(res, () => app.reportService.execute(req.params.taskId)));
-  router.get('/report/tasks', (req, res) => ok(res, app.reportService.listTasks()));
-  router.get('/report/tasks/:taskId', (req, res) => {
-    const t = app.reportService.getTask(req.params.taskId);
-    t ? ok(res, t) : fail(res, '任务不存在');
-  });
-  router.delete('/report/tasks/:taskId', (req, res) => ok(res, { success: app.reportService.deleteTask(req.params.taskId) }));
-
-  // ==================== 排行榜分析 v7.1 ====================
-  router.post('/rank/fetch', (req, res) => handle(res, () => app.rankAnalyticsService.fetchRanking(req.body)));
-  router.get('/rank/latest', (req, res) => ok(res, app.rankAnalyticsService.getLatest(parseInt(req.query.rid) || 0)));
-  router.get('/rank/snapshots', (req, res) => ok(res, app.rankAnalyticsService.listSnapshots(parseInt(req.query.limit) || 20)));
-  router.get('/rank/gray-analysis', (req, res) => ok(res, app.rankAnalyticsService.grayRelationAnalysis(req.query.snapshotId)));
-  router.get('/rank/funnel-opportunities', (req, res) => ok(res, app.rankAnalyticsService.findFunnelOpportunities(req.query.snapshotId)));
-  router.get('/rank/duration', (req, res) => ok(res, app.rankAnalyticsService.durationAnalysis(req.query.snapshotId)));
-  router.get('/rank/free-rider', (req, res) => ok(res, app.rankAnalyticsService.freeRiderAnalysis(req.query.snapshotId)));
-
-  // ==================== 全局策略 v7.1 ====================
-  router.get('/policy/global', (req, res) => ok(res, app.globalPolicyService.get()));
-  router.post('/policy/global', (req, res) => ok(res, app.globalPolicyService.update(req.body)));
-  router.post('/policy/reset', (req, res) => ok(res, app.globalPolicyService.reset()));
-
-  // ==================== 风控 v7.1 ====================
-  router.get('/risk/dashboard-v2', (req, res) => ok(res, app.riskController.getDashboard()));
-  router.post('/risk/evaluate/:accountId', (req, res) => ok(res, app.riskController.evaluate(req.params.accountId, req.body)));
-  router.post('/risk/report/:accountId', (req, res) => ok(res, app.riskController.reportRiskEvent(req.params.accountId, req.body.eventType)));
-  router.post('/risk/lift-mute', (req, res) => ok(res, app.riskController.liftGlobalMute()));
-
-  // ==================== 记忆系统 v7.1 ====================
-  router.get('/memory/:accountId', (req, res) => ok(res, app.memoryService.getHistory(req.params.accountId, parseInt(req.query.limit) || 50)));
-  router.get('/memory/stats/all', (req, res) => ok(res, app.memoryService.getStats()));
-  router.delete('/memory/:accountId', (req, res) => ok(res, { success: app.memoryService.clearAccount(req.params.accountId) }));
-
-  // ==================== 成长体系 v7.1 ====================
-  router.post('/growth/evaluate/:accountId', (req, res) => ok(res, app.growthSystem.evaluateLevel(req.params.accountId)));
-  router.post('/growth/evaluate-all', (req, res) => ok(res, app.growthSystem.evaluateAll()));
-  router.get('/growth/levels', (req, res) => ok(res, app.growthSystem.getLevels()));
-
-  // ==================== 智能调度 v7.1 ====================
-  router.get('/scheduler/status', (req, res) => ok(res, app.adaptiveScheduler.getStatus()));
-  router.post('/scheduler/start', (req, res) => { app.adaptiveScheduler.start(); ok(res, { success: true }); });
-  router.post('/scheduler/stop', (req, res) => { app.adaptiveScheduler.stop(); ok(res, { success: true }); });
-  router.post('/scheduler/run-funnel', (req, res) => handle(res, () => app.adaptiveScheduler.runFunnel(req.body)));
-  router.post('/scheduler/run-cultivation', (req, res) => handle(res, () => app.adaptiveScheduler.runCultivationRound()));
-
-  // ==================== 行为引擎 v7.1 ====================
-  router.post('/behavior/plan/:accountId', (req, res) => ok(res, app.behaviorEngine.generateDailyPlan(req.params.accountId)));
-  router.post('/behavior/run/:accountId', (req, res) => handle(res, () => app.behaviorEngine.runDailyPlan(req.params.accountId)));
+  // ==================== Personas ====================
+  router.get('/personas', (req, res) => ok(res, []));
 
   // ==================== 登录（后端本地登录，兼容旧端点）====================
   router.post('/login/start', (req, res) => ok(res, { message: '请使用本地登录服务', localLogin: true }));

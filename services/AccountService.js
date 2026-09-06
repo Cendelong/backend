@@ -6,33 +6,10 @@
  */
 import { AccountManagerV2, AccountCultivator, ACCOUNT_TYPE } from '../src/accounts-v2/index.js';
 import { getProxyForAccount, isProxyReady } from '../src/utils/proxy-pool.js';
-import { ProxyAgent, fetch as undiciFetch } from 'undici';
 
 export class AccountService {
   constructor() {
     this.manager = new AccountManagerV2();
-  }
-
-  /**
-   * v6.4：前置检测单个代理IP是否可用（通过该IP访问B站nav接口）
-   * @param {string} proxyAddr - ip:port
-   * @returns {Promise<boolean>}
-   */
-  async _testProxyAvailable(proxyAddr) {
-    if (!proxyAddr) return false;
-    try {
-      const p = proxyAddr.includes('://') ? proxyAddr : 'http://' + proxyAddr;
-      const res = await undiciFetch('https://api.bilibili.com/x/web-interface/nav', {
-        dispatcher: new ProxyAgent(p),
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36' },
-        signal: AbortSignal.timeout(8000),
-      });
-      if (!res.ok) return false;
-      const data = await res.json();
-      return data.code === 0 || data.code === -101;
-    } catch {
-      return false;
-    }
   }
 
   async _getCultivator(accountId) {
@@ -70,67 +47,42 @@ export class AccountService {
     if (!account) return { proxy: null, skipped: true, reason: '账号不存在' };
     if (!account.isActive) return { proxy: null, skipped: true, reason: '账号非活跃状态' };
 
+    // v6.3：注册IP是账号专属IP，不依赖代理池生命周期。
+    // 之前用 isProxyReady 检查注册IP是否在readyPool中，但Render重启后代理池重新抓取，
+    // 注册IP很可能不在新池中，导致粘性IP失效→无同地区IP→账号被跳过。
+    // 修复：注册IP直接使用，实际请求失败时再标记失效。
     let proxy = null;
     let proxySource = 'none';
 
-    // 1. 最优先：注册IP（专属IP，前置检测可用性）
-    if (account.registeredProxyIp && (account.proxyIpFailCount || 0) < 5) {
-      console.log(`[AccountService] 账号 uid=${account.uid} 检测注册IP: ${account.registeredProxyIp}...`);
-      const ok = await this._testProxyAvailable(account.registeredProxyIp);
-      if (ok) {
-        proxy = account.registeredProxyIp;
-        proxySource = 'registered';
-        account.proxyIpFailCount = 0;
+    // 1. 最优先：注册IP（专属，不经代理池可用性检查）
+    if (account.registeredProxyIp && account.proxyIpFailCount < 5) {
+      proxy = account.registeredProxyIp;
+      proxySource = 'registered';
+      if (account.lastUsedProxyIp !== proxy) {
         account.lastUsedProxyIp = proxy;
-        console.log(`[AccountService] ✅ 注册IP可用`);
-      } else {
-        account.proxyIpFailCount = (account.proxyIpFailCount || 0) + 1;
-        console.log(`[AccountService] ❌ 注册IP不可用，失败次数=${account.proxyIpFailCount}`);
+        account.proxyIpFailCount = 0;
       }
     }
-
-    // 2. 回退：最后一次使用的IP（前置检测）
-    if (!proxy && account.lastUsedProxyIp && account.lastUsedProxyIp !== account.registeredProxyIp && (account.proxyIpFailCount || 0) < 8) {
-      console.log(`[AccountService] 账号 uid=${account.uid} 检测上次IP: ${account.lastUsedProxyIp}...`);
-      const ok = await this._testProxyAvailable(account.lastUsedProxyIp);
-      if (ok) {
-        proxy = account.lastUsedProxyIp;
-        proxySource = 'lastUsed';
-        console.log(`[AccountService] ✅ 上次IP可用`);
-      } else {
-        account.proxyIpFailCount = (account.proxyIpFailCount || 0) + 1;
-        console.log(`[AccountService] ❌ 上次IP不可用`);
-      }
+    // 2. 回退：最后一次使用的IP（如果不是注册IP且失败次数<3）
+    else if (account.lastUsedProxyIp && account.lastUsedProxyIp !== account.registeredProxyIp && account.proxyIpFailCount < 3) {
+      proxy = account.lastUsedProxyIp;
+      proxySource = 'lastUsed';
     }
-
-    // 3. 都不可用 → 从代理池分配同地区新IP（代理池已验证过，直接用）
+    // 3. 都不可用 → 从代理池分配同地区新IP
     if (!proxy) {
       const newProxy = getProxyForAccount(account);
       if (!newProxy) {
-        this.manager.update(accountId, { proxyIpFailCount: account.proxyIpFailCount });
-        return {
-          proxy: null,
-          skipped: true,
-          reason: `注册IP和上次IP均失效，且代理池无${account.region || '未知'}地区可用IP。账号已静默，待代理池有该地区IP后自动恢复。`,
-          region: account.region,
-          needUserAttention: true,
-        };
+        return { proxy: null, skipped: true, reason: `注册IP失效且无${account.region || '未知'}地区可用IP，账号静默等待` };
       }
       proxy = newProxy.proxy;
       proxySource = 'pool';
       account.bindProxy(proxy);
       account.proxyCity = newProxy.city || '';
-      account.proxyIpFailCount = 0;
-      this.manager.update(accountId, { lastUsedProxyIp: proxy, proxyCity: account.proxyCity, proxyIpFailCount: 0 });
-      console.log(`[AccountService] ✅ 从代理池分配新IP: ${proxy}`);
+      this.manager.update(accountId, { lastUsedProxyIp: proxy, proxyCity: account.proxyCity });
     }
 
     account.proxy = proxy;
-    // 持久化失败计数
-    if (account.proxyIpFailCount > 0) {
-      this.manager.update(accountId, { proxyIpFailCount: account.proxyIpFailCount });
-    }
-    console.log(`[AccountService] 账号 uid=${account.uid} 最终IP: ${proxy} (来源:${proxySource})`);
+    console.log(`[AccountService] 账号 uid=${account.uid} 分配IP: ${proxy} (来源:${proxySource}, 失败次数:${account.proxyIpFailCount || 0})`);
     return { proxy, skipped: false, region: account.region, source: proxySource };
   }
 

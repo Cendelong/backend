@@ -32,6 +32,5 @@ export class ProxyService {
   async waitForProxy(timeoutMs = 15000, region = null) { return waitForProxy(timeoutMs, region); }
   getProxyForAccount(account, opts = {}) { return getProxyForAccount(account, opts); }
   getSupportedRegions() { return SUPPORTED_REGIONS; }
-  isRefreshing() { return !!getProxyPoolStats().isRefreshing; }
 }
 export default ProxyService;

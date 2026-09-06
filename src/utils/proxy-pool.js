@@ -3,7 +3,7 @@
  *
  * 支持8个地区：美国(US)、加拿大(CA)、德国(DE)、法国(FR)、英国(GB)、日本(JP)、香港(HK)、中国(CN)
  * - 验证目标：B站(api.bilibili.com) + 出口IP国家识别
- * - 50秒定时增量刷新，防止Render休眠
+ * - 3分钟定时增量刷新（v6.5.1降低出站流量，仍防止Render15分钟休眠），可手动立即刷新
  * - 可用IP缓存30分钟，连续失败3次自动剔除
  * - 按地区筛选分配，账号绑定地区后IP失效同地区重分配
  *
@@ -21,7 +21,7 @@ import { CN_PROXY_SOURCES } from './proxy-sources.js'; // v1.5.3：共享代理�
 // ============================================================
 const VALIDATE_CONCURRENCY = 50;       // 验证并发数（v5.4提升）
 const PROXY_TIMEOUT_MS = 8000;          // 单个代理验证超时
-const REFRESH_INTERVAL_MS = 50 * 1000;  // 刷新间隔50秒（防止Render休眠）
+const REFRESH_INTERVAL_MS = 180 * 1000;  // 刷新间隔3分钟（v6.5.1降低出站流量消耗，仍可防止Render15分钟休眠）
 const MIN_READY_POOL_SIZE = 5;           // 可用池最低水位
 const MAX_PROXIES_PER_SOURCE = 300;      // 每个源最多保留多少代理（v5.4提升）
 const MAX_TOTAL_TO_VALIDATE = 2000;      // 每次刷新最多验证多少个（v5.4提升，多地区需要更多IP）
@@ -549,7 +549,7 @@ export function getProxyPoolStats() {
   };
 }
 
-/** 启动定时刷新（默认50秒，防止Render休眠） */
+/** 启动定时刷新（默认3分钟，v6.5.1降低出站流量消耗） */
 export function startProxyPool(intervalMs = REFRESH_INTERVAL_MS) {
   // v6.2：启动时不立即刷新（避免Render免费层启动时资源耗尽导致部署超时）
   // 先从持久化文件恢复IP，延迟10秒后再在后台异步刷新

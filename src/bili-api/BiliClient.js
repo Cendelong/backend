@@ -11,6 +11,7 @@
  * 设计模式：Facade（外观模式）+ Rate Limiter
  */
 import { WbiSigner } from './WbiSigner.js';
+import bandwidthTracker from '../utils/bandwidth-tracker.js';
 // undici 改为动态导入，避免模块加载时挂起（仅在使用代理时才加载 ProxyAgent）
 let _ProxyAgent = null;
 async function getProxyAgent() {
@@ -263,6 +264,8 @@ export class BiliClient {
         this.stats.lastRequest = new Date().toISOString();
 
         const text = await res.text();
+        // v6.5 记录出站流量（Render → B站 响应体）
+        if (text) bandwidthTracker.recordOutbound(Buffer.byteLength(text, 'utf-8'));
         let data;
         try { data = JSON.parse(text); } catch { data = { raw: text }; }
 
