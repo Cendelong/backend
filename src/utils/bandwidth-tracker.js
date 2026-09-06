@@ -1,5 +1,5 @@
 /**
- * 带宽追踪器（v6.5 多后端流量调度）
+ * 带宽追踪器（v6.6 多后端流量调度）
  *
  * 统计当前 Render 实例的出站流量，用于多后端按流量顺序调度。
  *
@@ -42,7 +42,6 @@ class BandwidthTracker {
     this._load();
   }
 
-  /** 解析环境变量中的阈值（支持 GB/MB 后缀，纯数字视为字节） */
   _parseThreshold() {
     const raw = process.env.BANDWIDTH_THRESHOLD || '';
     if (!raw) return DEFAULT_THRESHOLD_BYTES;
@@ -69,15 +68,10 @@ class BandwidthTracker {
     try {
       if (fs.existsSync(DATA_FILE)) {
         const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8'));
-        // 跨月重置
         if (data.monthKey !== this._monthKey) {
           console.log(`[Bandwidth] 新月份 ${this._monthKey}，流量统计重置（上月 ${data.monthKey} 共 ${this._fmt(data.bytes || 0)}）`);
-          this._bytes = 0;
-          this._requests = 0;
-          this._wsBytes = 0;
-          this._wsConnections = 0;
-          this._outboundBytes = 0;
-          this._outboundRequests = 0;
+          this._bytes = 0; this._requests = 0; this._wsBytes = 0;
+          this._wsConnections = 0; this._outboundBytes = 0; this._outboundRequests = 0;
         } else {
           this._bytes = data.bytes || 0;
           this._requests = data.requests || 0;
@@ -107,17 +101,13 @@ class BandwidthTracker {
         thresholdBytes: this._thresholdBytes,
       };
       fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-    } catch (e) {
-      // 静默失败（Render 可能文件系统只读）
-    }
+    } catch (e) {}
   }
 
-  /** 记录 HTTP 响应体字节（Express 中间件使用） */
   recordResponse(bytes) {
     if (bytes > 0) {
       this._bytes += bytes;
       this._requests++;
-      // 每 50 次请求或超过 1MB 增量时持久化
       if (this._requests % 50 === 0 || bytes > 1024 * 1024) {
         this._checkMonthRollover();
         this._save();
@@ -125,12 +115,11 @@ class BandwidthTracker {
     }
   }
 
-  /** 记录 WebSocket 隧道转发字节 */
   recordWs(bytes) {
     if (bytes > 0) {
       this._wsBytes += bytes;
-      this._bytes += bytes; // WS 转发也计入总出站
-      if (this._wsBytes % (1024 * 1024) < bytes) { // 每跨过 1MB 保存
+      this._bytes += bytes;
+      if (this._wsBytes % (1024 * 1024) < bytes) {
         this._checkMonthRollover();
         this._save();
       }
@@ -141,15 +130,11 @@ class BandwidthTracker {
     this._wsConnections++;
   }
 
-  /**
-   * 记录出站 HTTP 请求的响应体字节（BiliClient 调用B站API等）
-   * 这部分是 Render → B站 的流量，属于 Render 出站流量
-   */
   recordOutbound(bytes) {
     if (bytes > 0) {
       this._outboundBytes += bytes;
       this._outboundRequests++;
-      this._bytes += bytes; // 出站请求响应也计入总出站
+      this._bytes += bytes;
       if (this._outboundRequests % 20 === 0) {
         this._checkMonthRollover();
         this._save();
@@ -162,29 +147,22 @@ class BandwidthTracker {
     if (current !== this._monthKey) {
       console.log(`[Bandwidth] 跨月检测: ${this._monthKey} → ${current}，重置统计`);
       this._monthKey = current;
-      this._bytes = 0;
-      this._requests = 0;
-      this._wsBytes = 0;
-      this._wsConnections = 0;
-      this._outboundBytes = 0;
-      this._outboundRequests = 0;
+      this._bytes = 0; this._requests = 0; this._wsBytes = 0;
+      this._wsConnections = 0; this._outboundBytes = 0; this._outboundRequests = 0;
       this._save();
     }
   }
 
-  /** 是否已用完流量（达到阈值） */
   isExhausted() {
     this._checkMonthRollover();
     return this._bytes >= this._thresholdBytes;
   }
 
-  /** 流量使用比例 0~1 */
   getUsageRatio() {
     this._checkMonthRollover();
     return Math.min(1, this._bytes / this._thresholdBytes);
   }
 
-  /** 获取完整状态 */
   getStatus() {
     this._checkMonthRollover();
     const total = this._bytes;
@@ -199,31 +177,17 @@ class BandwidthTracker {
       exhausted: this.isExhausted(),
       remainingBytes: Math.max(0, this._thresholdBytes - total),
       remainingGB: this._fmtGB(Math.max(0, this._thresholdBytes - total)),
-      http: {
-        bytes: this._bytes - this._wsBytes - this._outboundBytes,
-        requests: this._requests,
-      },
-      websocket: {
-        bytes: this._wsBytes,
-        connections: this._wsConnections,
-      },
-      outbound: {
-        bytes: this._outboundBytes,
-        requests: this._outboundRequests,
-      },
+      http: { bytes: this._bytes - this._wsBytes - this._outboundBytes, requests: this._requests },
+      websocket: { bytes: this._wsBytes, connections: this._wsConnections },
+      outbound: { bytes: this._outboundBytes, requests: this._outboundRequests },
       uptimeSeconds: Math.floor((Date.now() - this._startedAt) / 1000),
       role: process.env.BACKEND_ROLE || 'both',
     };
   }
 
-  /** 手动重置（调试用） */
   reset() {
-    this._bytes = 0;
-    this._requests = 0;
-    this._wsBytes = 0;
-    this._wsConnections = 0;
-    this._outboundBytes = 0;
-    this._outboundRequests = 0;
+    this._bytes = 0; this._requests = 0; this._wsBytes = 0;
+    this._wsConnections = 0; this._outboundBytes = 0; this._outboundRequests = 0;
     this._save();
     console.log('[Bandwidth] 流量统计已手动重置');
   }
@@ -240,8 +204,6 @@ class BandwidthTracker {
   }
 }
 
-// 单例
 const tracker = new BandwidthTracker();
-
 export default tracker;
 export { BandwidthTracker };

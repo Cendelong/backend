@@ -264,7 +264,6 @@ export class BiliClient {
         this.stats.lastRequest = new Date().toISOString();
 
         const text = await res.text();
-        // v6.5 记录出站流量（Render → B站 响应体）
         if (text) bandwidthTracker.recordOutbound(Buffer.byteLength(text, 'utf-8'));
         let data;
         try { data = JSON.parse(text); } catch { data = { raw: text }; }

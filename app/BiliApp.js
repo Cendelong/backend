@@ -76,7 +76,7 @@ export class BiliApp {
     app.use(express.json({ limit: '1mb' }));
     app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
-    // v6.5 带宽追踪：统计所有 HTTP 响应体出站字节
+    // v6.6 带宽追踪：统计所有 HTTP 响应体出站字节
     app.use((req, res, next) => {
       const originalSend = res.send.bind(res);
       const originalJson = res.json.bind(res);
@@ -134,15 +134,13 @@ export class BiliApp {
       res.json({ code: 0, data: { status: 'ok', version: '4.0.0', uptime: process.uptime() } });
     });
 
-    // v6.5 多后端流量调度：后端带宽状态端点（无需鉴权，前端轮询用）
+    // v6.6 多后端流量调度：后端带宽状态端点
     app.get('/api/backend/bandwidth', (req, res) => {
       res.json({ code: 0, data: this.bandwidthService.getStatus() });
     });
-    // v6.5 后端角色信息
     app.get('/api/backend/role', (req, res) => {
       res.json({ code: 0, data: { role: this.bandwidthService.getRole(), exhausted: this.bandwidthService.isExhausted() } });
     });
-    // v6.5 重置流量统计（调试用，需管理员）
     app.post('/api/backend/bandwidth/reset', requireAdmin, (req, res) => {
       res.json({ code: 0, data: this.bandwidthService.reset() });
     });
@@ -385,7 +383,7 @@ server.on('connect', (req, clientSocket, head) => {
       setupWsTunnel(this._server, _self);
       console.log('');
       console.log('╔══════════════════════════════════════════════════════════╗');
-      console.log('║  B站内容互动管理平台后端 v6.5（多后端流量调度版）        ║');
+      console.log('║  B站内容互动管理平台后端 v6.6（动态多后端流量调度版）    ║');
       console.log('╠══════════════════════════════════════════════════════════╣');
       console.log(`║  端口: ${port}                                                ║`);
       console.log(`║  角色: ${(process.env.BACKEND_ROLE || 'both').padEnd(6)}  |  流量阈值: ${(bandwidthTracker.getStatus().thresholdGB)}GB                        ║`);

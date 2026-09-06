@@ -1,20 +1,24 @@
 /**
- * 多地区代理源配置（v5.0 全球地区版）
+ * 多地区代理源配置（v6.6.1 清理失效源版）
  *
  * 本文件同时部署在：
  *   - local-login-service/lib/proxy-sources.js（本地登录服务）
  *   - backend/src/utils/proxy-sources.js（Render 后端）
  * 两处内容必须完全一致，保证代理源列表统一。
  *
- * 所有源均为公开免费代理，抓取后通过 ip-api.com 验证出口国家，
- * 自动分类到8个地区：US/CA/DE/FR/GB/JP/HK/CN，其他国家过滤。
+ * v6.6.1：根据 Render 实际运行日志，删除了23个所有获取方式均失败的源：
+ *   - 404失效：officialputuid/KangProxy, yemixzy/proxy-list, hendrikbgr/Free-Proxy-Repo,
+ *              mmpx12/proxy-list, yoannchb-pro/Free-proxy, saschazesiger/Free-Proxies,
+ *              ProxyScrape-cdn-http
+ *   - 502/521：proxy-list.download(CN/http/socks5), 云代理
+ *   - 403封禁：spys(CN)
+ *   - 连接失败：66免费代理, databay-all, databay-http, proxy-list-download-http/https,
+ *               TheSpeedX-cdn(http), monosans-cdn(http)
+ *   - 国内站不可用：快代理(免费)
+ *   - 镜像失效：MuRongPIG(ghproxy镜像)
+ *   - 超时：proxydb.net, gfpcom-http(48万+)
  *
- * 源分类：
- *   A. GitHub raw 纯文本源（量大、稳定，优先）
- *   B. API 源（支持 country 筛选）
- *   C. 国内代理网站（HTML 解析）
- *   D. GitHub 镜像/CDN 源（国内可直连，备选）
- *   E. 国际代理源（v5.0 新增：全球多地区IP）
+ * 保留41个可正常抓取的源。
  */
 
 export const CN_PROXY_SOURCES = [
@@ -24,11 +28,6 @@ export const CN_PROXY_SOURCES = [
   {
     name: 'MuRongPIG/Proxy-Master',
     getUrl: () => 'https://raw.githubusercontent.com/MuRongPIG/Proxy-Master/main/http.txt',
-    pages: 1,
-  },
-  {
-    name: 'officialputuid/KangProxy',
-    getUrl: () => 'https://raw.githubusercontent.com/officialputuid/KangProxy/KangProxy/http/http.txt',
     pages: 1,
   },
   {
@@ -87,21 +86,6 @@ export const CN_PROXY_SOURCES = [
     pages: 1,
   },
   {
-    name: 'yemixzy/proxy-list',
-    getUrl: () => 'https://raw.githubusercontent.com/yemixzy/proxy-list/main/proxy-list/data.txt',
-    pages: 1,
-  },
-  {
-    name: 'hendrikbgr/Free-Proxy-Repo',
-    getUrl: () => 'https://raw.githubusercontent.com/hendrikbgr/Free-Proxy-Repo/master/proxy-list/http.txt',
-    pages: 1,
-  },
-  {
-    name: 'mmpx12/proxy-list',
-    getUrl: () => 'https://raw.githubusercontent.com/mmpx12/proxy-list/master/http.txt',
-    pages: 1,
-  },
-  {
     name: 'rdavydov/proxy-list',
     getUrl: () => 'https://raw.githubusercontent.com/rdavydov/proxy-list/main/proxies/http.txt',
     pages: 1,
@@ -109,16 +93,6 @@ export const CN_PROXY_SOURCES = [
   {
     name: 'sunny9577/proxy-scraper',
     getUrl: () => 'https://raw.githubusercontent.com/sunny9577/proxy-scraper/master/proxies.txt',
-    pages: 1,
-  },
-  {
-    name: 'yoannchb-pro/Free-proxy',
-    getUrl: () => 'https://raw.githubusercontent.com/yoannchb-pro/Free-proxy/main/http.txt',
-    pages: 1,
-  },
-  {
-    name: 'saschazesiger/Free-Proxies',
-    getUrl: () => 'https://raw.githubusercontent.com/saschazesiger/Free-Proxies/master/proxies/http.txt',
     pages: 1,
   },
 
@@ -137,42 +111,10 @@ export const CN_PROXY_SOURCES = [
     isJson: true,
   },
   {
-    name: 'proxy-list.download(CN)',
-    getUrl: () => 'https://www.proxy-list.download/api/v1/get?type=http&country=CN',
-    pages: 1,
-  },
-  {
     name: 'freeproxy(CN)',
     getUrl: () => 'https://free-proxy-list.net/',
     pages: 1,
     isHtml: true,
-  },
-  {
-    name: 'spys(CN)',
-    getUrl: () => 'https://spys.one/free-proxy-list/CN/',
-    pages: 1,
-    isHtml: true,
-  },
-
-  // ============================================================
-  // C. 国内代理网站（HTML 解析）
-  // ============================================================
-  {
-    name: '快代理(免费)',
-    getUrl: (page) => `https://www.kuaidaili.com/free/inha/${page}/`,
-    pages: 3,
-    isHtml: true,
-  },
-  {
-    name: '云代理',
-    getUrl: (page) => `http://www.ip3366.net/free/?stype=1&page=${page}`,
-    pages: 3,
-    isHtml: true,
-  },
-  {
-    name: '66免费代理',
-    getUrl: () => 'http://www.66ip.cn/mo.php?tqsl=100',
-    pages: 1,
   },
 
   // ============================================================
@@ -188,14 +130,9 @@ export const CN_PROXY_SOURCES = [
     getUrl: () => 'https://cdn.jsdelivr.net/gh/monosans/proxy-list@main/proxies/http.txt',
     pages: 1,
   },
-  {
-    name: 'MuRongPIG(ghproxy镜像)',
-    getUrl: () => 'https://ghproxy.com/https://raw.githubusercontent.com/MuRongPIG/Proxy-Master/main/http.txt',
-    pages: 1,
-  },
+
   // ============================================================
-  // E. 国际代理源（v5.0 新增：全球多地区IP）
-  // 这些源包含全球IP，验证时按国家代码自动分类到8个地区
+  // E. 国际代理源（全球多地区IP，验证时按国家代码自动分类）
   // ============================================================
   {
     name: 'TheSpeedX/PROXY-List(http)',
@@ -260,22 +197,6 @@ export const CN_PROXY_SOURCES = [
     isHtml: true,
   },
   {
-    name: 'proxydb.net',
-    getUrl: (page) => `https://proxydb.net/?protocol=http&anonlvl=4&country=&offset=${(page-1)*15}`,
-    pages: 3,
-    isHtml: true,
-  },
-  {
-    name: 'proxy-list.download(http)',
-    getUrl: () => 'https://www.proxy-list.download/api/v1/get?type=http',
-    pages: 1,
-  },
-  {
-    name: 'proxy-list.download(socks5)',
-    getUrl: () => 'https://www.proxy-list.download/api/v1/get?type=socks5',
-    pages: 1,
-  },
-  {
     name: 'openproxylist(http)',
     getUrl: () => 'https://openproxylist.xyz/http.txt',
     pages: 1,
@@ -303,90 +224,35 @@ export const CN_PROXY_SOURCES = [
   },
 
   // ============================================================
-  // F. v5.4 新增：Render海外可直连的高可靠代理源（10个）
-  // 所有源均为 GitHub raw / jsDelivr CDN / 专用API，Render美国节点可直接访问
+  // F. Render海外可直连的高可靠代理源
   // ============================================================
   {
-    // 48万+ HTTP代理，每小时更新，GitHub wiki raw
-    name: 'gfpcom-http(48万+)',
-    getUrl: () => 'https://raw.githubusercontent.com/wiki/gfpcom/free-proxy-list/lists/http.txt',
-    pages: 1,
-  },
-  {
-    // 44万+ HTTPS代理，每小时更新
     name: 'gfpcom-https(44万+)',
     getUrl: () => 'https://raw.githubusercontent.com/wiki/gfpcom/free-proxy-list/lists/https.txt',
     pages: 1,
   },
   {
-    // ProxyScrape官方GitHub，jsDelivr CDN镜像（无速率限制），每分钟重验
     name: 'ProxyScrape-cdn-all',
     getUrl: () => 'https://cdn.jsdelivr.net/gh/proxyscrape/free-proxy-list@main/proxies/all/data.txt',
     pages: 1,
   },
   {
-    // ProxyScrape HTTP分类
-    name: 'ProxyScrape-cdn-http',
-    getUrl: () => 'https://cdn.jsdelivr.net/gh/proxyscrape/free-proxy-list@main/proxies/http/data.txt',
-    pages: 1,
-  },
-  {
-    // databay.com 官方热链，5分钟刷新，CORS开放，专门为程序调用设计
-    name: 'databay-all(5min刷新)',
-    getUrl: () => 'https://databay.com/free-proxy-list.txt',
-    pages: 1,
-  },
-  {
-    // databay HTTP分类
-    name: 'databay-http',
-    getUrl: () => 'https://databay.com/free-proxy-list/http.txt',
-    pages: 1,
-  },
-  {
-    // 78万+代理，GitHub raw，持续刷新，jsDelivr镜像备选
     name: 'hproxy-http(78万+)',
     getUrl: () => 'https://raw.githubusercontent.com/hproxy-com/free-proxy-list/main/http.txt',
     pages: 1,
   },
   {
-    // hproxy all.txt（含所有协议）
     name: 'hproxy-all',
     getUrl: () => 'https://raw.githubusercontent.com/hproxy-com/free-proxy-list/main/all.txt',
     pages: 1,
   },
   {
-    // proxy-list.download API，按协议类型批量下载
-    name: 'proxy-list-download-http',
-    getUrl: () => 'https://www.proxy-list.download/api/v1/get?type=http',
-    pages: 1,
-  },
-  {
-    // proxy-list.download HTTPS
-    name: 'proxy-list-download-https',
-    getUrl: () => 'https://www.proxy-list.download/api/v1/get?type=https',
-    pages: 1,
-  },
-  {
-    // dpangestuw/Free-Proxy，GitHub raw，定期更新
     name: 'dpangestuw-http',
     getUrl: () => 'https://raw.githubusercontent.com/dpangestuw/Free-Proxy/refs/heads/main/http_proxies.txt',
     pages: 1,
   },
-  {
-    // TheSpeedX jsDelivr CDN镜像（防止GitHub raw被限流）
-    name: 'TheSpeedX-cdn(http)',
-    getUrl: () => 'https://cdn.jsdelivr.net/gh/TheSpeedX/PROXY-List@master/http.txt',
-    pages: 1,
-  },
-  {
-    // monosans jsDelivr CDN镜像
-    name: 'monosans-cdn(http)',
-    getUrl: () => 'https://cdn.jsdelivr.net/gh/monosans/proxy-list@main/proxies/http.txt',
-    pages: 1,
-  },
 ];
 
-// v5.0：统一导出为 PROXY_SOURCES（包含中国+国际源，验证时自动按地区分类）
+// 统一导出
 export const PROXY_SOURCES = CN_PROXY_SOURCES;
-
 export default CN_PROXY_SOURCES;
