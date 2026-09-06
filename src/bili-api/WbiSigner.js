@@ -1,5 +1,5 @@
 /**
- * WbiSigner - B站WBI签名生成器（v3.1 现代化修复）
+ * WbiSigner - B站WBI签名生成器（v3.1 现代化修复，v6.8.2 强制代理）
  *
  * B站部分API（如评论列表 /x/v2/reply/wbi/main）需要WBI签名。
  * WBI签名通过 img_key 和 sub_key 混合生成 mixinKey，然后对请求参数排序后MD5签名。
@@ -11,8 +11,19 @@
  * - 旧实现错误1：把 `!'()*` 替换为 `%xx` 百分号编码（应删除）
  * - 旧实现错误2：签名 query 未做 URL 编码（含中文/% 的参数会导致签名与服务端不一致）
  * - 修复后：sign 生成的 query 与发送的 query 完全一致（先过滤→再 urlencode→再 md5）
+ *
+ * v6.8.2：所有B站API请求必须走代理池IP，禁止直连。
  */
 import crypto from 'crypto';
+
+let _ProxyAgent = null;
+async function getProxyAgent() {
+  if (!_ProxyAgent) {
+    const undici = await import('undici');
+    _ProxyAgent = undici.ProxyAgent;
+  }
+  return _ProxyAgent;
+}
 
 // WBI签名混淆表（固定）
 const MIXIN_KEY_ENC_TAB = [
@@ -31,12 +42,33 @@ function encodeURIComponentSafe(value) {
 }
 
 export class WbiSigner {
-  constructor() {
+  constructor(options = {}) {
     this.imgKey = '';
     this.subKey = '';
     this.mixinKey = '';
     this.lastUpdate = 0;
     this.updateInterval = 60 * 60 * 1000; // 1小时更新一次
+    this.proxy = options.proxy || null;
+    this._proxyAgent = null;
+  }
+
+  /** 设置代理（代理池IP） */
+  setProxy(proxy) {
+    this.proxy = proxy || null;
+    if (this._proxyAgent) {
+      try { this._proxyAgent.close(); } catch (e) {}
+      this._proxyAgent = null;
+    }
+  }
+
+  async _getDispatcher() {
+    if (!this.proxy) return undefined;
+    if (!this._proxyAgent) {
+      const ProxyAgent = await getProxyAgent();
+      const p = this.proxy.includes('://') ? this.proxy : `http://${this.proxy}`;
+      this._proxyAgent = new ProxyAgent(p);
+    }
+    return this._proxyAgent;
   }
 
   /**
@@ -51,7 +83,8 @@ export class WbiSigner {
         'Referer': 'https://www.bilibili.com',
       };
       if (cookieStr) headers['Cookie'] = cookieStr;
-      const res = await fetch('https://api.bilibili.com/x/web-interface/nav', { headers });
+      const dispatcher = await this._getDispatcher();
+      const res = await fetch('https://api.bilibili.com/x/web-interface/nav', { headers, dispatcher });
       const data = await res.json();
       if (data.code === 0 && data.data?.wbi_img) {
         const imgUrl = data.data.wbi_img.img_url || '';

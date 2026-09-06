@@ -62,7 +62,7 @@ export class BiliClient {
 
     // 限流
     this._requestTimes = [];
-    this._wbiSigner = new WbiSigner();
+    this._wbiSigner = new WbiSigner({ proxy: this.proxy });
 
     // B7修复：从 Cookie 解析当前用户 mid（DedeUserID），供心跳/上报等参数使用
     const midMatch = this.cookieStr.match(/DedeUserID=([^;]+)/);
@@ -80,6 +80,10 @@ export class BiliClient {
     if (this._proxyAgent) {
       try { this._proxyAgent.close(); } catch (e) {}
       this._proxyAgent = null;
+    }
+    // 同步更新 WbiSigner 的代理
+    if (this._wbiSigner) {
+      this._wbiSigner.setProxy(proxy);
     }
   }
 

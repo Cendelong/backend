@@ -23,11 +23,29 @@ import AccountManager from '../accounts/account-manager.js';
 import { getBiliHeaders } from './bili-api.js';
 import { randomDelay, randomInt, pick, weightedPick } from './human-behavior.js';
 import taskQueue from './task-queue.js';
+import { getProxy, waitForProxy } from './proxy-pool.js';
 
-// 本地通用请求函数（用原生 fetch，兼容 GET/POST）
+// 本地通用请求函数（v6.8.2：必须走代理池IP，禁止直连）
+// 每次请求从代理池获取一个可用代理
 async function apiRequest(url, options = {}) {
   const opts = { ...options };
   if (!opts.signal) opts.signal = AbortSignal.timeout(15000);
+
+  // v6.8.2：从代理池获取代理，禁止直连
+  let proxy = getProxy();
+  if (!proxy) {
+    console.log('[Nurture] 等待可用代理...');
+    proxy = await waitForProxy(10000);
+  }
+  if (!proxy) {
+    throw new Error(`[Nurture] 无可用代理，禁止直连请求 → ${url.substring(0, 60)}`);
+  }
+
+  const { ProxyAgent } = await import('undici');
+  const proxyUrl = proxy.proxy.includes('://') ? proxy.proxy : `http://${proxy.proxy}`;
+  opts.dispatcher = new ProxyAgent(proxyUrl);
+  console.log(`[Nurture] 使用代理 ${proxy.proxy} → ${url.substring(0, 60)}`);
+
   const res = await fetch(url, opts);
   return await res.json();
 }

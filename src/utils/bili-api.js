@@ -1,5 +1,5 @@
 /**
- * B站API请求封装（集成中国IP代理池）
+ * B站API请求封装（集成代理池，v6.8.2 强制代理禁止直连）
  *
  * 核心功能：
  * - 每个账号可独立配置是否启用代理（account.useProxy）
@@ -7,6 +7,7 @@
  * - 使用 undici ProxyAgent 发送 HTTPS over HTTP 代理请求
  * - 代理失败自动标记并换代理重试
  * - 完全对齐HAR数据包的请求头、表单格式、WBI签名
+ * - v6.8.2：所有B站API请求必须走代理池IP，无可用代理时禁止直连
  */
 import { ProxyAgent, fetch as undiciFetch } from 'undici';
 import { getProxy, waitForProxy, markProxyFailed, getProxyPoolStats, acquireProxy, releaseProxy, markProxyBlocked } from './proxy-pool.js';
@@ -79,16 +80,6 @@ function shouldUseProxy(account) {
 // 核心请求方法（带代理重试）
 // ============================================================
 async function biliFetch({ url, method = 'GET', headers = {}, body = null, account = null, bv = null, useWbi = false }) {
-  // B5修复：WBI签名 —— 解析现有URL query → 规范化+urlencode 重签名 → 原样替换 query
-  // （必须用 signAndGetQuery 返回的 query 串，保证「签名==发送」逐字节一致）
-  if (useWbi) {
-    const base = url.split('?')[0];
-    const search = url.includes('?') ? url.split('?')[1] : '';
-    const parsed = Object.fromEntries(new URLSearchParams(search));
-    await wbiSigner.ensureKeys(account?.cookie || '');
-    const { query } = wbiSigner.signAndGetQuery(parsed);
-    url = `${base}?${query}`;
-  }
   const useProxy = shouldUseProxy(account);
   let attempt = 0;
   let lastError = null;
@@ -103,33 +94,46 @@ async function biliFetch({ url, method = 'GET', headers = {}, body = null, accou
 
     try {
       // 配置代理（v2.2：按账号获取，绑定主用IP + 防同IP共用）
-      if (useProxy) {
-        let proxy = null;
-        if (account) {
-          // 有账号 → 用账号主用IP绑定逻辑
-          proxy = acquireProxy(accountKey, account.primaryProxy);
-          if (!proxy) {
-            console.log(`[BiliAPI] 无空闲代理，等待... (尝试 ${attempt})`);
-            const start = Date.now();
-            while (!proxy && Date.now() - start < 10000) {
-              proxy = acquireProxy(accountKey, account.primaryProxy);
-              if (!proxy) await new Promise(r => setTimeout(r, 800));
-            }
-          }
-        } else {
-          proxy = getProxy();
-          if (!proxy) {
-            proxy = await waitForProxy(10000);
+      // v6.8.2：所有B站API请求必须走代理池IP，禁止直连
+      let proxy = null;
+      if (account) {
+        // 有账号 → 用账号主用IP绑定逻辑
+        proxy = acquireProxy(accountKey, account.primaryProxy);
+        if (!proxy) {
+          console.log(`[BiliAPI] 无空闲代理，等待... (尝试 ${attempt})`);
+          const start = Date.now();
+          while (!proxy && Date.now() - start < 10000) {
+            proxy = acquireProxy(accountKey, account.primaryProxy);
+            if (!proxy) await new Promise(r => setTimeout(r, 800));
           }
         }
-        if (proxy) {
-          usedProxy = proxy.proxy;
-          acquired = usedProxy;
-          dispatcher = new ProxyAgent(`http://${usedProxy}`);
-          console.log(`[BiliAPI] 使用代理 ${usedProxy} (${proxy.speed}ms) → ${method} ${url.substring(0, 60)}`);
-        } else {
-          console.warn(`[BiliAPI] 无可用代理，直连请求 → ${method} ${url.substring(0, 60)}`);
+      } else {
+        proxy = getProxy();
+        if (!proxy) {
+          proxy = await waitForProxy(10000);
         }
+      }
+      if (proxy) {
+        usedProxy = proxy.proxy;
+        acquired = usedProxy;
+        dispatcher = new ProxyAgent(`http://${usedProxy}`);
+        console.log(`[BiliAPI] 使用代理 ${usedProxy} (${proxy.speed}ms) → ${method} ${url.substring(0, 60)}`);
+        // v6.8.2：同步设置 WbiSigner 的代理，确保 updateKeys 也走代理
+        wbiSigner.setProxy(usedProxy);
+      } else {
+        // v6.8.2：无可用代理时禁止直连，抛出错误
+        throw new Error(`无可用代理，禁止直连请求 → ${method} ${url.substring(0, 60)}`);
+      }
+
+      // B5修复：WBI签名 —— 解析现有URL query → 规范化+urlencode 重签名 → 原样替换 query
+      // （必须用 signAndGetQuery 返回的 query 串，保证「签名==发送」逐字节一致）
+      if (useWbi) {
+        const base = url.split('?')[0];
+        const search = url.includes('?') ? url.split('?')[1] : '';
+        const parsed = Object.fromEntries(new URLSearchParams(search));
+        await wbiSigner.ensureKeys(account?.cookie || '');
+        const { query } = wbiSigner.signAndGetQuery(parsed);
+        url = `${base}?${query}`;
       }
 
       // 构建请求

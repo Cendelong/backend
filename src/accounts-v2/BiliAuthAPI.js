@@ -3,6 +3,8 @@
  *
  * 所有B站认证相关API集中管理，API变更只需修改此文件。
  *
+ * v6.8.2：所有B站API请求必须走代理池IP，禁止直连。
+ *
  * 职责：
  * - 封装所有认证相关HTTP请求
  * - 处理请求头、Cookie、CSRF
@@ -22,6 +24,15 @@ import {
   COOKIE_FIELDS, TIMEOUTS,
 } from './constants.js';
 
+let _ProxyAgent = null;
+async function getProxyAgent() {
+  if (!_ProxyAgent) {
+    const undici = await import('undici');
+    _ProxyAgent = undici.ProxyAgent;
+  }
+  return _ProxyAgent;
+}
+
 export class BiliAuthAPI {
   /**
    * @param {Object} options - 配置
@@ -37,7 +48,28 @@ export class BiliAuthAPI {
       this.userAgent = this.deviceProfile.userAgent;
     }
     this.proxy = options.proxy || null;
+    this._proxyAgent = null;
     this.timeout = options.timeout || TIMEOUTS.API_REQUEST;
+  }
+
+  /** 设置代理（代理池IP） */
+  setProxy(proxy) {
+    this.proxy = proxy || null;
+    if (this._proxyAgent) {
+      try { this._proxyAgent.close(); } catch (e) {}
+      this._proxyAgent = null;
+    }
+  }
+
+  /** 获取 undici ProxyAgent（v6.8.2：所有B站API请求必须走代理池IP） */
+  async _getDispatcher() {
+    if (!this.proxy) return undefined;
+    if (!this._proxyAgent) {
+      const ProxyAgent = await getProxyAgent();
+      const p = this.proxy.includes('://') ? this.proxy : `http://${this.proxy}`;
+      this._proxyAgent = new ProxyAgent(p);
+    }
+    return this._proxyAgent;
   }
 
   // ============================================================
@@ -62,7 +94,7 @@ export class BiliAuthAPI {
   }
 
   /**
-   * 执行HTTP请求
+   * 执行HTTP请求（v6.8.2：必须走代理池IP，禁止直连）
    * @param {string} url - 请求URL
    * @param {Object} options - fetch选项
    */
@@ -70,10 +102,13 @@ export class BiliAuthAPI {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeout);
     try {
+      // v6.8.2：所有B站API请求必须走代理池IP
+      const dispatcher = this.proxy ? await this._getDispatcher() : undefined;
       const res = await fetch(url, {
         ...options,
         signal: controller.signal,
         headers: { ...this._buildHeaders(options.cookie), ...(options.headers || {}) },
+        dispatcher,
       });
       clearTimeout(timer);
 
