@@ -352,59 +352,58 @@ export class Account {
   // 序列化
   // ============================================================
 
-  /** 转换为纯对象（用于持久化） */
+  /**
+   * 转换为纯对象（用于持久化）
+   * v6.9.7：最小化保存，只保留API调用B站操作所需的字段
+   * Render端只使用API调用，不使用浏览器，因此不需要userDataDir、完整fingerprint等
+   */
   toJSON() {
+    // 只保留关键cookie，减少存储体积
+    const KEY_COOKIES = ['SESSDATA', 'bili_jct', 'DedeUserID', 'DedeUserID__ckMd5', 'sid', 'buvid3', 'buvid4'];
+    const minimalCookies = {};
+    for (const key of KEY_COOKIES) {
+      if (this.cookies[key]) minimalCookies[key] = this.cookies[key];
+    }
+
     return {
+      // 基本标识
       id: this.id,
       uid: this.uid,
       phone: this.phone,
       remark: this.remark,
-      username: this.username,
       status: this.status,
       trustedDevice: this.trustedDevice,
-      cookies: this.cookies,
-      cookieStr: this.cookieStr,
+      // 认证（最小化）
+      cookies: minimalCookies,
       refreshToken: this.refreshToken,
+      // 设备与代理（API调用必需）
+      userAgent: this.userAgent,
+      deviceProfile: this.deviceProfile,
       fingerprintId: this.fingerprintId,
-      fingerprint: this.fingerprint,
       proxy: this.proxy,
       proxyCity: this.proxyCity,
-      userAgent: this.userAgent,
       registeredProxyIp: this.registeredProxyIp,
       lastUsedProxyIp: this.lastUsedProxyIp,
       proxyIpFailCount: this.proxyIpFailCount,
       proxyIpBoundAt: this.proxyIpBoundAt,
-      registeredAt: this.registeredAt,
-      deviceProfile: this.deviceProfile,
+      // 调度与时间
+      cookieExpire: this.cookieExpire,
+      nextRefreshAt: this.nextRefreshAt,
+      lastRefresh: this.lastRefresh,
+      lastActive: this.lastActive,
+      lastCheck: this.lastCheck,
+      lastLogin: this.lastLogin,
+      createdAt: this.createdAt,
+      // 养号（API操作调度需要）
       accountType: this.accountType,
       cultivationStage: this.cultivationStage,
       daysInStage: this.daysInStage,
-      totalCultivationDays: this.totalCultivationDays,
-      lastCultivationDate: this.lastCultivationDate,
-      userDataDir: this.userDataDir,
-      warmUpStartedAt: this.warmUpStartedAt,
-      warmUpDurationHours: this.warmUpDurationHours,
-      warmUpDisabled: this.warmUpDisabled,
       activeWindowStart: this.activeWindowStart,
       activeWindowEnd: this.activeWindowEnd,
-      nextRefreshAt: this.nextRefreshAt,
-      createdAt: this.createdAt,
-      lastLogin: this.lastLogin,
-      lastActive: this.lastActive,
-      lastRefresh: this.lastRefresh,
-      lastCheck: this.lastCheck,
-      cookieExpire: this.cookieExpire,
+      // 健康状态
       healthScore: this.healthScore,
-      healthFactors: this.healthFactors,
       alertLevel: this.alertLevel,
-      predictDays: this.predictDays,
-      riskEvents: this.riskEvents,
-      operationCount: this.operationCount,
-      dailyOperations: this.dailyOperations,
       useProxy: this.useProxy,
-      persona: this.persona,
-      behaviorProfile: this.behaviorProfile,
-      extra: this.extra,
     };
   }
 
