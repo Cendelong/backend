@@ -88,21 +88,32 @@ export class CookieRefresher extends EventEmitter {
       const refreshResult = await this.step4_refreshCookie(refreshCsrf);
       this.stepResults.step4 = { newRefreshToken: refreshResult.newRefreshToken.substring(0, 10) + '...' };
 
-      // 步骤5：确认更新（使用旧refreshToken + 新csrf）
-      this.currentStep = 5;
+      // 步骤4.5：立即更新账号凭证（参考开源项目：先保存再确认，避免确认步骤失败导致新Cookie丢失）
       const newCsrf = refreshResult.newCookies['bili_jct'] || this.account.csrf;
       const newCookieStr = this._buildCookieStr(refreshResult.newCookies);
-      await this.step5_confirmRefresh(newCsrf, oldRefreshToken, newCookieStr);
-      this.stepResults.step5 = { confirmed: true };
+      this.account.updateCredentials(refreshResult.newCookies, refreshResult.newRefreshToken);
+      this.account.lastCheck = new Date().toISOString();
+      this.emit('credentialsSaved', { accountId: this.account.id, step: 4 });
+
+      // 步骤5：确认更新（使用旧refreshToken + 新csrf）—— 失败不影响整体成功，仅警告
+      this.currentStep = 5;
+      try {
+        await this.step5_confirmRefresh(newCsrf, oldRefreshToken, newCookieStr);
+        this.stepResults.step5 = { confirmed: true };
+      } catch (e) {
+        console.warn(`[CookieRefresher] 步骤5确认失败（不影响使用）: ${e.message}`);
+        this.stepResults.step5 = { confirmed: false, warning: e.message };
+      }
 
       // 步骤6：SSO跨域登录（简化：访问B站首页触发SSO）
       this.currentStep = 6;
-      await this.step6_ssoLogin(newCookieStr);
-      this.stepResults.step6 = { sso: true };
-
-      // 更新账号凭证
-      this.account.updateCredentials(refreshResult.newCookies, refreshResult.newRefreshToken);
-      this.account.lastCheck = new Date().toISOString();
+      try {
+        await this.step6_ssoLogin(newCookieStr);
+        this.stepResults.step6 = { sso: true };
+      } catch (e) {
+        console.warn(`[CookieRefresher] 步骤6 SSO失败（不影响使用）: ${e.message}`);
+        this.stepResults.step6 = { sso: false, warning: e.message };
+      }
 
       this.emit('refreshSuccess', {
         accountId: this.account.id,
