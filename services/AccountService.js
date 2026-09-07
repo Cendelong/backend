@@ -97,7 +97,14 @@ export class AccountService {
   async refresh(id, opts = {}) {
     const acc = this.get(id);
     if (!acc) throw new Error('账号不存在');
-    return this.manager.refreshAccount ? await this.manager.refreshAccount(id, { force: !!opts.force }) : { id, refreshed: true };
+    // v6.9.15：刷新前必须分配粘性IP（注册IP优先，IP复用规则）
+    const alloc = await this.resolveProxy(id);
+    if (alloc.skipped) {
+      console.log(`[AccountService] 账号 ${id} 刷新被跳过: ${alloc.reason}`);
+      return { success: false, skipped: true, reason: alloc.reason };
+    }
+    acc.proxy = alloc.proxy;
+    return this.manager.refreshAccount ? await this.manager.refreshAccount(id, { force: !!opts.force, proxy: alloc.proxy }) : { id, refreshed: true };
   }
 
   async refreshAll() {
